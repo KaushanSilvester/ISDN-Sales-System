@@ -179,6 +179,57 @@ def add_product():
 
     return render_template("add_product.html")
 
+@app.route('/delete_product/<int:product_id>')
+def delete_product(product_id):
+    if 'username' not in session or session['role'] != "Admin":
+        return redirect(url_for('dashboard'))
+
+    conn = sqlite3.connect("database.db")
+    cursor = conn.cursor()
+
+    # Get image name first (to delete file)
+    cursor.execute("SELECT image FROM products WHERE id=?", (product_id,))
+    product = cursor.fetchone()
+
+    if product and product[0]:
+        image_path = os.path.join(app.config['UPLOAD_FOLDER'], product[0])
+        if os.path.exists(image_path):
+            os.remove(image_path)
+
+    cursor.execute("DELETE FROM products WHERE id=?", (product_id,))
+    conn.commit()
+    conn.close()
+
+    return redirect(url_for('products'))
+
+@app.route('/edit_product/<int:product_id>', methods=['GET', 'POST'])
+def edit_product(product_id):
+    if 'username' not in session or session['role'] != "Admin":
+        return redirect(url_for('dashboard'))
+
+    conn = sqlite3.connect("database.db")
+    cursor = conn.cursor()
+
+    if request.method == 'POST':
+        name = request.form['name']
+        price = request.form['price']
+        stock = request.form['stock']
+
+        cursor.execute("""
+            UPDATE products
+            SET name=?, price=?, stock=?
+            WHERE id=?
+        """, (name, price, stock, product_id))
+
+        conn.commit()
+        conn.close()
+        return redirect(url_for('products'))
+
+    cursor.execute("SELECT * FROM products WHERE id=?", (product_id,))
+    product = cursor.fetchone()
+    conn.close()
+
+    return render_template("edit_product.html", product=product)
 
 @app.route('/order/<int:product_id>', methods=['GET', 'POST'])
 def order(product_id):
@@ -233,9 +284,10 @@ def update_order(order_id, status):
     conn = sqlite3.connect("database.db")
     cursor = conn.cursor()
 
-    # Get order info
-    cursor.execute("SELECT product_id, quantity, status, payment_status FROM orders WHERE id=?", (order_id,))
-    order = cursor.fetchone()
+    cursor.execute(
+        "SELECT product_id, quantity, status, payment_status FROM orders WHERE id=?",
+        (order_id,)
+    )
     order = cursor.fetchone()
 
     if not order:
@@ -243,20 +295,13 @@ def update_order(order_id, status):
         return redirect(url_for('view_orders'))
 
     product_id, quantity, current_status, payment_status = order
-
     role = session['role']
 
-    # ---------- ADMIN CONTROL ----------
+    # ADMIN
     if role == "Admin":
 
         if status == "Approved" and current_status == "Pending":
 
-            if payment_status != "Paid":
-                conn.close()
-                return "Cannot approve unpaid order ❌"
-
-    
-            # Reduce stock
             cursor.execute("SELECT stock FROM products WHERE id=?", (product_id,))
             stock = cursor.fetchone()[0]
 
@@ -266,12 +311,12 @@ def update_order(order_id, status):
                 cursor.execute("UPDATE orders SET status=? WHERE id=?", ("Approved", order_id))
             else:
                 conn.close()
-                return "Insufficient stock ❌"
+                return "Insufficient stock"
 
         elif status == "Rejected" and current_status == "Pending":
             cursor.execute("UPDATE orders SET status=? WHERE id=?", ("Rejected", order_id))
 
-    # ---------- STAFF CONTROL ----------
+    # STAFF
     elif role == "Staff":
 
         if status == "Processing" and current_status == "Approved":
@@ -287,9 +332,6 @@ def update_order(order_id, status):
     conn.close()
 
     return redirect(url_for('view_orders'))
-
-UPLOAD_FOLDER = 'static/uploads'
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 @app.route('/pay/<int:order_id>')
 def pay_order(order_id):
