@@ -7,6 +7,10 @@ from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 app.secret_key = "secretkey123"
+import os
+
+UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'static', 'uploads')
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 # ---------- DATABASE SETUP ----------
 def init_db():
@@ -157,13 +161,23 @@ def add_product():
         return redirect(url_for('dashboard'))
 
     if request.method == 'POST':
-        name = request.form['name']
-        price = request.form['price']
-        stock = request.form['stock']
-        image = request.files['image']
+        name = request.form.get('name')
+        price = request.form.get('price')
+        stock = request.form.get('stock')
 
-        filename = secure_filename(image.filename)
-        image.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+        image = request.files.get('image')
+        filename = None
+
+        # If image is selected
+        if image and image.filename != "":
+            filename = secure_filename(image.filename)
+
+            upload_path = os.path.join(app.root_path, 'static', 'uploads')
+
+            # Make sure folder exists
+            os.makedirs(upload_path, exist_ok=True)
+
+            image.save(os.path.join(upload_path, filename))
 
         conn = sqlite3.connect("database.db")
         cursor = conn.cursor()
